@@ -2,11 +2,10 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const csv = require('csv-parser');
+const axios = require('axios');
 
 //urls needed
-const MainPage = "https://www.endclothing.com/gb";
-const AddAddress = "https://www.endclothing.com/gb/account/addresses/shipping/new";
-const AddPayment = "https://www.endclothing.com/gb/account/payment/new";
+const Page = "https://launches.endclothing.com/product/travis-scott-x-air-jordan-1-low-dm7866-162";
 
 //CHANGE THIS TO THE PATH OF THE CSV FILE
 const CsvFilePath = 'active.csv';
@@ -18,12 +17,29 @@ const ProxiesFilePath = 'proxies.txt';
 const minute = 1000 * 60;
 const hour = minute * 60;
 
+//Define selectors needed
+const accLogin = 'div[aria-label="Account"] > button.sc-vusgcu-1.gNOsfS';
+const emailLogin = '#email';
+const passwordLogin = '#password';
+const continueBtn = 'button[value="Continue"]';
+const sizeSelect = 'div[name="draw_form"] > div.sc-1bm65b4-3.eMsFtq > div.sc-1bm65b4-0.hAFLhY > button';
+const size = 'li[data-testid="SizeDropdown__select_btn"]';
+
 //create sleep fucntion
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+console.log('Starting...');
 
+var proxies;
+
+proxies = fs.readFileSync(ProxiesFilePath, 'utf8').split("\n").map(r => r.split(":"));
+
+var j = Math.floor(Math.random() * (proxies.length - 1))
+var errCount = 0;
+
+var results = []
 fs.createReadStream(CsvFilePath)
     .pipe(csv())
     .on('data', (data) => results.push(data))
@@ -41,41 +57,27 @@ fs.createReadStream(CsvFilePath)
                 j++;
 
                 //inputs
-                var fnameCsv = results[i][Object.keys(results[i])[3]];
-                var snameCsv = results[i][Object.keys(results[i])[4]];
                 var emailCsv = results[i][Object.keys(results[i])[0]];
-                var phoneCsv = createMobilePhoneNumber("UK");
                 var passCsv = results[i][Object.keys(results[i])[1]];
-                var postcodeCsv = results[i][Object.keys(results[i])[8]];
-                var addressCsv = results[i][Object.keys(results[i])[5]];
-                var address2Csv = results[i][Object.keys(results[i])[6]];
-                var cityCsv = results[i][Object.keys(results[i])[7]];
-                var countyCsv = results[i][Object.keys(results[i])[9]];
 
-                var cardNumberCsv = results[i][Object.keys(results[i])[11]];
-                var expirationMCsv = results[i][Object.keys(results[i])[12]];
-                var expirationYCsv = results[i][Object.keys(results[i])[13]];
-                var cvvCsv = results[i][Object.keys(results[i])[14]];
+                var check = await EnterAccount(proxyUrl, proxyUser, proxyPass, emailCsv, passCsv);
 
-                //if (check == false) {
-                //    if (errCount == 3) {
-                //        //console.log(`Blocked too many times, ${i + 1}. ${emailCsv} skipped...`);
-                //        console.log('\x1b[31m%s\x1b[0m', `Blocked too many times, waiting...`);
-                //        //badAccounts.push(emailCsv);
-                //        //badAccountPos.push(i);
-                //        errCount = 0;
-                //        i--;
-                //        await sleep(30 * minute);
-                //    } else {
-                //        i--;
-                //        errCount++;
-                //    }
-                //    check = true;
-                //    await sleep(5000);
-                //} else {
-                //    errCount = 0;
-                //    console.log('\x1b[32m%s\x1b[0m', `${i + 1}. ${emailCsv} created...`);
-                //}
+                if (check == false) {
+                    if (errCount == 2) {
+                        console.log('\x1b[31m%s\x1b[0m', `Blocked too many times, waiting...`);
+                        errCount = 0;
+                        i--;
+                        await sleep(30 * minute);
+                    } else {
+                        i--;
+                        errCount++;
+                    }
+                    check = true;
+                    await sleep(5000);
+                } else {
+                    errCount = 0;
+                    console.log('\x1b[32m%s\x1b[0m', `${i + 1}. ${emailCsv} entered...`);
+                }
 
                 await sleep(Math.floor(Math.random() * 5000) + 10000);
 
@@ -85,7 +87,80 @@ fs.createReadStream(CsvFilePath)
 
             }
 
-
-
         })();
     });
+
+async function EnterAccount(proxyUrl, proxyUser, proxyPass, emailInp, passInp) {
+    try {
+        //connect to localhost proxy
+        browser = await puppeteer.launch({
+            args: ['--proxy-server=' + proxyUrl],
+            //args: ['--start-maximized'],
+            headless: false,
+            slowMo: 90,
+        });
+        page = await browser.newPage();
+        //console.log(`Connected to proxy ${proxyUser}...`);
+    } catch (err) {
+        console.log('\x1b[33m%s\x1b[0m', 'Proxy not running...Connecting without proxy...');
+    }
+
+    if (proxyUser !== '') {
+        //console.log("Authenticating proxy user/pass...");
+        await page.authenticate({
+            username: proxyUser,
+            password: proxyPass
+        });
+    }
+
+    try {
+        //Randomise page width
+        pageWidth = Math.floor(Math.random() * (1920 - 1100)) + 1100;
+
+        //Open window
+        await page.setViewport({ width: pageWidth, height: 793 });
+        await page.goto(Page);
+
+        if (page.url() === "https://www.endclothing.com/distil_r_drop.html") {
+            console.log('\x1b[33m%s\x1b[0m', `Error creating account for ${emailInp}...`);
+            browser.close();
+            return false;
+        }
+
+        await page.waitForSelector(accLogin);
+        await page.click(accLogin);
+
+        if (page.url() === "https://www.endclothing.com/distil_r_drop.html") {
+            console.log('\x1b[33m%s\x1b[0m', `Error creating account for ${emailInp}...`);
+            browser.close();
+            return false;
+        }
+
+        await sleep(Math.floor(Math.random() * 2000) + 3000);
+        await page.type(emailLogin, emailInp);
+
+        await page.click(continueBtn);
+
+        await sleep(Math.floor(Math.random() * 2000) + 3000);
+        await page.type(passwordLogin, passInp);
+
+        await page.click(continueBtn);
+        await sleep(1000);
+
+        if (page.url() === "https://www.endclothing.com/distil_r_drop.html") {
+            console.log('\x1b[33m%s\x1b[0m', `Error creating account for ${emailInp}...`);
+            browser.close();
+            return false;
+        }
+
+        await page.click(sizeSelect);
+
+        await page.click(size);
+
+    } catch (err) {
+        console.log('\x1b[33m%s\x1b[0m', err);
+        console.log('\x1b[33m%s\x1b[0m', `Error entering account for ${emailInp}...\n`);
+        browser.close();
+        return false;
+    }
+}
